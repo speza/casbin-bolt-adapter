@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"github.com/casbin/casbin/v2/model"
 	"github.com/casbin/casbin/v2/persist"
+	bolt "github.com/coreos/bbolt"
 	"github.com/mmcloughlin/meow"
-	bolt "go.etcd.io/bbolt"
 	"strings"
 )
 
