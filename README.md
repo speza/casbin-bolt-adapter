@@ -1,4 +1,4 @@
-#### Casbin BoltDB Adapter
+#### WIP: Casbin BoltDB Adapter
 A simple Casbin BoltDB Adapter (see https://casbin.org/docs/en/adapters).
 This flavour supports the **auto-save** functionality.
 
