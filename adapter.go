@@ -26,11 +26,17 @@ type adapter struct {
 	bucket []byte
 }
 
-func NewAdapter(db *bolt.DB, bucket string) *adapter {
-	return &adapter{
+func NewAdapter(db *bolt.DB, bucket string) (*adapter, error) {
+	adapter := &adapter{
 		db:     db,
 		bucket: []byte(bucket),
 	}
+
+	if err := adapter.init(); err != nil {
+		return nil, err
+	}
+
+	return adapter, nil
 }
 
 func (a *adapter) init() error {
