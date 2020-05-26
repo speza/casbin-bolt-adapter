@@ -70,8 +70,8 @@ func policyKey(ptype string, rule []string) string {
 	return fmt.Sprintf("%x", sum)
 }
 
-func savePolicyLine(ptype string, rule []string) *CasbinRule {
-	line := &CasbinRule{PType: ptype}
+func savePolicyLine(ptype string, rule []string) CasbinRule {
+	line := CasbinRule{PType: ptype}
 
 	l := len(rule)
 	if l > 0 {
@@ -141,7 +141,38 @@ func (a *adapter) RemovePolicy(sec string, ptype string, rule []string) error {
 }
 
 func (a *adapter) SavePolicy(model model.Model) error {
-	panic("not supported")
+	return a.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(a.bucket)
+
+		var rules []CasbinRule
+
+		for ptype, ast := range model["p"] {
+			for _, line := range ast.Policy {
+				rules = append(rules, savePolicyLine(ptype, line))
+			}
+		}
+
+		for ptype, ast := range model["g"] {
+			for _, line := range ast.Policy {
+				rules = append(rules, savePolicyLine(ptype, line))
+			}
+		}
+
+		for _, rule := range rules {
+			key := []byte(rule.Key)
+
+			bts, err := json.Marshal(rule)
+			if err != nil {
+				return err
+			}
+
+			if err := bucket.Put(key, bts); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
 }
 
 func (a *adapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int, fieldValues ...string) error {
