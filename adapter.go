@@ -33,7 +33,7 @@ func NewAdapter(db *bolt.DB, bucket string) *adapter {
 	}
 }
 
-func (a *adapter) Open() error {
+func (a *adapter) init() error {
 	return a.db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(a.bucket)
 		return err
