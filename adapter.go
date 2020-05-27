@@ -2,6 +2,7 @@ package boltadapter
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/casbin/casbin/v2/model"
 	"github.com/casbin/casbin/v2/persist"
@@ -26,6 +27,7 @@ type adapter struct {
 	bucket []byte
 }
 
+// NewAdapter creates a new adapter. It assumes that the Bolt DB is already open.
 func NewAdapter(db *bolt.DB, bucket string) (*adapter, error) {
 	adapter := &adapter{
 		db:     db,
@@ -76,7 +78,7 @@ func policyKey(ptype string, rule []string) string {
 	return fmt.Sprintf("%x", sum)
 }
 
-func savePolicyLine(ptype string, rule []string) CasbinRule {
+func getPolicyLine(ptype string, rule []string) CasbinRule {
 	line := CasbinRule{PType: ptype}
 
 	l := len(rule)
@@ -104,6 +106,7 @@ func savePolicyLine(ptype string, rule []string) CasbinRule {
 	return line
 }
 
+// LoadPolicy performs a scan on the bucket to get and load all policy lines.
 func (a *adapter) LoadPolicy(model model.Model) error {
 	return a.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(a.bucket)
@@ -119,8 +122,9 @@ func (a *adapter) LoadPolicy(model model.Model) error {
 	})
 }
 
+// AddPolicy inserts or updates an existing policy using the hashed policyKey as the key.
 func (a *adapter) AddPolicy(sec string, ptype string, rule []string) error {
-	line := savePolicyLine(ptype, rule)
+	line := getPolicyLine(ptype, rule)
 
 	return a.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(a.bucket)
@@ -136,13 +140,13 @@ func (a *adapter) AddPolicy(sec string, ptype string, rule []string) error {
 	})
 }
 
+// RemovePolicy removes a policy line that matches the hashed policyKey.
 func (a *adapter) RemovePolicy(sec string, ptype string, rule []string) error {
-	line := savePolicyLine(ptype, rule)
+	key := policyKey(ptype, rule)
 
 	return a.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(a.bucket)
-
-		return bucket.Delete([]byte(line.Key))
+		return bucket.Delete([]byte(key))
 	})
 }
 
@@ -150,30 +154,19 @@ func (a *adapter) SavePolicy(model model.Model) error {
 	return a.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(a.bucket)
 
-		var rules []CasbinRule
-
 		for ptype, ast := range model["p"] {
 			for _, line := range ast.Policy {
-				rules = append(rules, savePolicyLine(ptype, line))
+				if err := a.putLine(bucket, ptype, line); err != nil {
+					return err
+				}
 			}
 		}
 
 		for ptype, ast := range model["g"] {
 			for _, line := range ast.Policy {
-				rules = append(rules, savePolicyLine(ptype, line))
-			}
-		}
-
-		for _, rule := range rules {
-			key := []byte(rule.Key)
-
-			bts, err := json.Marshal(rule)
-			if err != nil {
-				return err
-			}
-
-			if err := bucket.Put(key, bts); err != nil {
-				return err
+				if err := a.putLine(bucket, ptype, line); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -181,6 +174,20 @@ func (a *adapter) SavePolicy(model model.Model) error {
 	})
 }
 
+func (a *adapter) putLine(bucket *bolt.Bucket, ptype string, line []string) error {
+	pLine := getPolicyLine(ptype, line)
+
+	key := []byte(pLine.Key)
+
+	bts, err := json.Marshal(pLine)
+	if err != nil {
+		return err
+	}
+
+	return bucket.Put(key, bts)
+}
+
+// RemoveFilteredPolicy is not implemented. It does not make sense performance-wise as we must scan the whole bucket.
 func (a *adapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int, fieldValues ...string) error {
-	panic("not supported")
+	return errors.New("not implemented")
 }
