@@ -140,6 +140,13 @@ func (a *adapter) AddPolicy(sec string, ptype string, rule []string) error {
 	})
 }
 
+func (a *adapter) AddPolicies(sec string, ptype string, rules [][]string) error {
+	for _, r := range rules {
+		return a.AddPolicy(sec, ptype, r)
+	}
+	return nil
+}
+
 // RemovePolicy removes a policy line that matches the hashed policyKey.
 func (a *adapter) RemovePolicy(sec string, ptype string, rule []string) error {
 	key := policyKey(ptype, rule)
@@ -148,6 +155,13 @@ func (a *adapter) RemovePolicy(sec string, ptype string, rule []string) error {
 		bucket := tx.Bucket(a.bucket)
 		return bucket.Delete([]byte(key))
 	})
+}
+
+func (a *adapter) RemovePolicies(sec string, ptype string, rules [][]string) error {
+	for _, r := range rules {
+		return a.RemovePolicy(sec, ptype, r)
+	}
+	return nil
 }
 
 func (a *adapter) SavePolicy(model model.Model) error {
