@@ -1,6 +1,7 @@
 package boltadapter
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,15 +24,17 @@ type CasbinRule struct {
 }
 
 type adapter struct {
-	db     *bolt.DB
-	bucket []byte
+	db            *bolt.DB
+	bucket        []byte
+	builtinPolicy string
 }
 
 // NewAdapter creates a new adapter. It assumes that the Bolt DB is already open.
-func NewAdapter(db *bolt.DB, bucket string) (*adapter, error) {
+func NewAdapter(db *bolt.DB, bucket string, buildinPolicy string) (*adapter, error) {
 	adapter := &adapter{
-		db:     db,
-		bucket: []byte(bucket),
+		db:            db,
+		bucket:        []byte(bucket),
+		builtinPolicy: buildinPolicy,
 	}
 
 	if err := adapter.init(); err != nil {
@@ -72,13 +75,31 @@ func loadPolicyLine(line CasbinRule, model model.Model) {
 	persist.LoadPolicyLine(lineText, model)
 }
 
+func loadCsvPolicyLine(line string, model model.Model) error {
+	if line == "" || strings.HasPrefix(line, "#") {
+		return nil
+	}
+
+	reader := csv.NewReader(strings.NewReader(line))
+	reader.TrimLeadingSpace = true
+	tokens, err := reader.Read()
+	if err != nil {
+		return err
+	}
+
+	key := tokens[0]
+	sec := key[:1]
+	model[sec][key].Policy = append(model[sec][key].Policy, tokens[1:])
+	return nil
+}
+
 func policyKey(ptype string, rule []string) string {
 	data := strings.Join(append([]string{ptype}, rule...), ",")
 	sum := meow.Checksum(0, []byte(data))
 	return fmt.Sprintf("%x", sum)
 }
 
-func getPolicyLine(ptype string, rule []string) CasbinRule {
+func savePolicyLine(ptype string, rule []string) CasbinRule {
 	line := CasbinRule{PType: ptype}
 
 	l := len(rule)
@@ -108,6 +129,14 @@ func getPolicyLine(ptype string, rule []string) CasbinRule {
 
 // LoadPolicy performs a scan on the bucket to get and load all policy lines.
 func (a *adapter) LoadPolicy(model model.Model) error {
+	if a.builtinPolicy != "" {
+		for _, line := range strings.Split(a.builtinPolicy, "\n") {
+			if err := loadCsvPolicyLine(strings.TrimSpace(line), model); err != nil {
+				return err
+			}
+		}
+	}
+
 	return a.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(a.bucket)
 
@@ -124,7 +153,7 @@ func (a *adapter) LoadPolicy(model model.Model) error {
 
 // AddPolicy inserts or updates an existing policy using the hashed policyKey as the key.
 func (a *adapter) AddPolicy(sec string, ptype string, rule []string) error {
-	line := getPolicyLine(ptype, rule)
+	line := savePolicyLine(ptype, rule)
 
 	return a.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(a.bucket)
@@ -189,7 +218,7 @@ func (a *adapter) SavePolicy(model model.Model) error {
 }
 
 func (a *adapter) putLine(bucket *bolt.Bucket, ptype string, line []string) error {
-	pLine := getPolicyLine(ptype, line)
+	pLine := savePolicyLine(ptype, line)
 
 	key := []byte(pLine.Key)
 

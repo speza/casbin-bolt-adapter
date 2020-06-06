@@ -10,6 +10,34 @@ import (
 
 const tmpDat = "test.dat"
 
+const buildinPolicy = `p, role-a, data1, write
+p, role-b, data2, read`
+
+func TestAdapter_LoadBuiltinPolicy(t *testing.T) {
+	db, err := bolt.Open(tmpDat, 0600, nil)
+	if err != nil {
+		t.Fatalf("error opening bolt db: %s\n", err.Error())
+	}
+	defer func() {
+		db.Close()
+		if _, err := os.Stat(tmpDat); err == nil {
+			os.Remove(tmpDat)
+		}
+	}()
+
+	adapter, err := NewAdapter(db, "casbin", buildinPolicy)
+	if err != nil {
+		t.Fatalf("error creating adapter: %s\n", err.Error())
+	}
+
+	enforcer, err := casbin.NewEnforcer("examples/rbac_model.conf", adapter)
+	if err != nil {
+		t.Fatalf("error creating enforcer: %s\n", err.Error())
+	}
+
+	testGetPolicy(t, enforcer.GetPolicy(), [][]string{{"role-a", "data1", "write"}, {"role-b", "data2", "read"}})
+}
+
 func TestAdapter_AddRemovePolicy(t *testing.T) {
 	db, err := bolt.Open(tmpDat, 0600, nil)
 	if err != nil {
@@ -22,7 +50,7 @@ func TestAdapter_AddRemovePolicy(t *testing.T) {
 		}
 	}()
 
-	adapter, err := NewAdapter(db, "casbin")
+	adapter, err := NewAdapter(db, "casbin", "")
 	if err != nil {
 		t.Fatalf("error creating adapter: %s\n", err.Error())
 	}
@@ -61,7 +89,7 @@ func TestAdapter_SavePolicy(t *testing.T) {
 		}
 	}()
 
-	adapter, err := NewAdapter(db, "casbin")
+	adapter, err := NewAdapter(db, "casbin", "")
 	if err != nil {
 		t.Fatalf("error creating adapter: %s\n", err.Error())
 	}
