@@ -10,8 +10,21 @@ import (
 
 const tmpDat = "test.dat"
 
-const buildinPolicy = `p, role-a, data1, write
+const builtinPolicy = `p, role-a, data1, write
 p, role-b, data2, read`
+
+func initEnforcer(t *testing.T, db *bolt.DB) *casbin.Enforcer {
+	adapter, err := NewAdapter(db, "casbin", "")
+	if err != nil {
+		t.Fatalf("error creating adapter: %s\n", err.Error())
+	}
+
+	enforcer, err := casbin.NewEnforcer("examples/rbac_model.conf", adapter)
+	if err != nil {
+		t.Fatalf("error creating enforcer: %s\n", err.Error())
+	}
+	return enforcer
+}
 
 func TestAdapter_LoadBuiltinPolicy(t *testing.T) {
 	db, err := bolt.Open(tmpDat, 0600, nil)
@@ -25,7 +38,7 @@ func TestAdapter_LoadBuiltinPolicy(t *testing.T) {
 		}
 	}()
 
-	adapter, err := NewAdapter(db, "casbin", buildinPolicy)
+	adapter, err := NewAdapter(db, "casbin", builtinPolicy)
 	if err != nil {
 		t.Fatalf("error creating adapter: %s\n", err.Error())
 	}
@@ -36,45 +49,6 @@ func TestAdapter_LoadBuiltinPolicy(t *testing.T) {
 	}
 
 	testGetPolicy(t, enforcer.GetPolicy(), [][]string{{"role-a", "data1", "write"}, {"role-b", "data2", "read"}})
-}
-
-func TestAdapter_AddRemovePolicy(t *testing.T) {
-	db, err := bolt.Open(tmpDat, 0600, nil)
-	if err != nil {
-		t.Fatalf("error opening bolt db: %s\n", err.Error())
-	}
-	defer func() {
-		db.Close()
-		if _, err := os.Stat(tmpDat); err == nil {
-			os.Remove(tmpDat)
-		}
-	}()
-
-	adapter, err := NewAdapter(db, "casbin", "")
-	if err != nil {
-		t.Fatalf("error creating adapter: %s\n", err.Error())
-	}
-
-	enforcer, err := casbin.NewEnforcer("examples/rbac_model.conf", adapter)
-	if err != nil {
-		t.Fatalf("error creating enforcer: %s\n", err.Error())
-	}
-
-	enforcer.AddPolicy("role-a", "data1", "write")
-	enforcer.AddPolicy("role-b", "data2", "read")
-	enforcer.AddRoleForUser("user-a", "role-a")
-	enforcer.AddRoleForUser("user-b", "role-b")
-
-	testGetPolicy(t, enforcer.GetPolicy(), [][]string{{"role-a", "data1", "write"}, {"role-b", "data2", "read"}})
-	testGetPolicy(t, enforcer.GetNamedGroupingPolicy("g"), [][]string{{"user-a", "role-a"}, {"user-b", "role-b"}})
-
-	enforcer.RemovePolicy("user-b", "data2", "read")
-
-	testGetPolicy(t, enforcer.GetPolicy(), [][]string{{"role-a", "data1", "write"}, {"role-b", "data2", "read"}})
-
-	enforcer.DeleteRoleForUser("user-b", "role-b")
-
-	testGetPolicy(t, enforcer.GetNamedGroupingPolicy("g"), [][]string{{"user-a", "role-a"}})
 }
 
 func TestAdapter_SavePolicy(t *testing.T) {
@@ -89,15 +63,7 @@ func TestAdapter_SavePolicy(t *testing.T) {
 		}
 	}()
 
-	adapter, err := NewAdapter(db, "casbin", "")
-	if err != nil {
-		t.Fatalf("error creating adapter: %s\n", err.Error())
-	}
-
-	enforcer, err := casbin.NewEnforcer("examples/rbac_model.conf", adapter)
-	if err != nil {
-		t.Fatalf("error creating enforcer: %s\n", err.Error())
-	}
+	enforcer := initEnforcer(t, db)
 
 	enforcer.EnableAutoSave(false)
 
@@ -107,6 +73,7 @@ func TestAdapter_SavePolicy(t *testing.T) {
 	enforcer.AddRoleForUser("user-b", "role-b")
 
 	enforcer.SavePolicy()
+	enforcer.LoadPolicy()
 
 	testGetPolicy(t, enforcer.GetPolicy(), [][]string{{"role-a", "data1", "write"}, {"role-b", "data2", "read"}})
 	testGetPolicy(t, enforcer.GetNamedGroupingPolicy("g"), [][]string{{"user-a", "role-a"}, {"user-b", "role-b"}})
