@@ -2,11 +2,14 @@ package boltadapter
 
 import (
 	"encoding/json"
+	"errors"
+	"strings"
+
 	"github.com/casbin/casbin/v2/model"
 	bolt "github.com/coreos/bbolt"
-	"strings"
 )
 
+// CasbinRule represents a Casbin rule line.
 type CasbinRule struct {
 	Key   string `json:"key"`
 	PType string `json:"p_type"`
@@ -24,8 +27,14 @@ type adapter struct {
 	builtinPolicy string
 }
 
-// NewAdapter creates a new adapter. It assumes that the Bolt DB is already open.
+// NewAdapter creates a new adapter. It assumes that the Bolt DB is already open. A bucket name is required and
+// represents the Bolt bucket to save the data into. like to save to. The builtinPolicy is a string representation
+// of a Casbin csv policy definition. If left builtinPolicy will not be used.
 func NewAdapter(db *bolt.DB, bucket string, builtinPolicy string) (*adapter, error) {
+	if bucket == "" {
+		return nil, errors.New("must provide a bucket")
+	}
+
 	adapter := &adapter{
 		db:            db,
 		bucket:        []byte(bucket),
@@ -46,7 +55,9 @@ func (a *adapter) init() error {
 	})
 }
 
-// LoadPolicy performs a scan on the bucket to get and load all policy lines.
+// LoadPolicy performs a scan on the bucket and individually loads every line into the Casbin model.
+// Not particularity efficient but should only be required on when you application starts up as this adapter can
+// leverage auto-save functionality.
 func (a *adapter) LoadPolicy(model model.Model) error {
 	if a.builtinPolicy != "" {
 		for _, line := range strings.Split(a.builtinPolicy, "\n") {

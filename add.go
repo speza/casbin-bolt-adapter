@@ -5,11 +5,12 @@ import (
 	bolt "github.com/coreos/bbolt"
 )
 
-// AddPolicy inserts or updates an existing policy.
+// AddPolicy inserts or updates a rule.
 func (a *adapter) AddPolicy(sec string, ptype string, rule []string) error {
 	return a.db.Update(func(tx *bolt.Tx) error {
-		line := convertRule(ptype, rule)
 		bucket := tx.Bucket(a.bucket)
+
+		line := convertRule(ptype, rule)
 
 		bts, err := json.Marshal(line)
 		if err != nil {
@@ -20,12 +21,13 @@ func (a *adapter) AddPolicy(sec string, ptype string, rule []string) error {
 	})
 }
 
-// AddPolicies inserts multiple policies.
+// AddPolicies inserts or updates multiple rules by iterating over each one and inserting it into the bucket.
 func (a *adapter) AddPolicies(sec string, ptype string, rules [][]string) error {
 	return a.db.Update(func(tx *bolt.Tx) error {
 		for _, r := range rules {
-			line := convertRule(ptype, r)
 			bucket := tx.Bucket(a.bucket)
+
+			line := convertRule(ptype, r)
 
 			bts, err := json.Marshal(line)
 			if err != nil {
