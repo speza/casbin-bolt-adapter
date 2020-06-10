@@ -5,5 +5,8 @@
 A simple Casbin BoltDB Adapter (see https://casbin.org/docs/en/adapters).
 This flavour supports the **auto-save** functionality.
 
-Individual policy lines get saved into a BoltDB bucket which is keyed using a meow hash of the policy line.
-The byte content is a JSON representation of the policy line.
+This is currently still being worked on. Right now it supports the autosave functionality, but I'm currently looking to 
+work in filtered adapter functionality - difficult with a simple k/v store like Bolt!
+
+Individual policy lines get saved into the specified BoltDB bucket which is keyed using a `::` delimited value of the
+role. The value content is a JSON representation of the policy rule.
