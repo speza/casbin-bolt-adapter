@@ -85,30 +85,9 @@ func (a *adapter) LoadPolicy(model model.Model) error {
 	})
 }
 
-// SavePolicy iterates through the entire model and individually saves each line.
-// Note: should not be needed when using auto-save function.
+// SavePolicy is not supported for this adapter. Auto-save should be used.
 func (a *adapter) SavePolicy(model model.Model) error {
-	return a.db.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(a.bucket)
-
-		for ptype, ast := range model["p"] {
-			for _, line := range ast.Policy {
-				if err := a.putLine(bucket, ptype, line); err != nil {
-					return err
-				}
-			}
-		}
-
-		for ptype, ast := range model["g"] {
-			for _, line := range ast.Policy {
-				if err := a.putLine(bucket, ptype, line); err != nil {
-					return err
-				}
-			}
-		}
-
-		return nil
-	})
+	return errors.New("not supported: must use auto-save with this adapter")
 }
 
 // AddPolicy inserts or updates a rule.
@@ -346,15 +325,4 @@ func convertRule(ptype string, line []string) CasbinRule {
 	rule.Key = strings.Join(keySlice, "::")
 
 	return rule
-}
-
-func (a *adapter) putLine(bucket *bolt.Bucket, ptype string, line []string) error {
-	pLine := convertRule(ptype, line)
-
-	bts, err := json.Marshal(pLine)
-	if err != nil {
-		return err
-	}
-
-	return bucket.Put([]byte(pLine.Key), bts)
 }
