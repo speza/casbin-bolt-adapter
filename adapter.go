@@ -10,7 +10,7 @@ import (
 
 	"github.com/casbin/casbin/v2/model"
 	"github.com/casbin/casbin/v2/persist"
-	bolt "github.com/coreos/bbolt"
+	bolt "go.etcd.io/bbolt"
 )
 
 // CasbinRule represents a Casbin rule line.
