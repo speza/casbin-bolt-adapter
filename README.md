@@ -1,5 +1,3 @@
-#### Fork of [this](https://github.com/speza/casbin-bolt-adapter)
-
 #### Casbin BoltDB Adapter (Experimental)
 
 I have marked this as experimental because I haven't put an awful amount of time into it. It needs more use to confirm its suitable for others needs.
