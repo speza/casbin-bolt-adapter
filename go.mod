@@ -3,7 +3,7 @@ module github.com/speza/casbin-bolt-adapter
 go 1.14
 
 require (
-	github.com/casbin/casbin/v2 v2.6.12
+	github.com/casbin/casbin/v2 v2.51.2
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/stretchr/testify v1.6.1
 	go.etcd.io/bbolt v1.3.4
