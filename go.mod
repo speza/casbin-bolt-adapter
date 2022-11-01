@@ -1,4 +1,4 @@
-module github.com/speza/casbin-bolt-adapter
+module github.com/mtal3t/casbin-bolt-adapter
 
 go 1.14
 
