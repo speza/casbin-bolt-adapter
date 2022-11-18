@@ -1,7 +1,6 @@
 package boltadapter
 
 import (
-	"io/ioutil"
 	"os"
 	"testing"
 
@@ -37,12 +36,7 @@ func (suite *AdapterTestSuite) SetupTest() {
 	}
 	suite.db = db
 
-	bts, err := ioutil.ReadFile("examples/rbac_policy.csv")
-	if err != nil {
-		t.Error(err)
-	}
-
-	a, err := NewAdapter(db, "casbin", string(bts))
+	a, err := NewAdapter(db, "casbin")
 	if err != nil {
 		t.Error(err)
 	}
@@ -57,17 +51,11 @@ func (suite *AdapterTestSuite) SetupTest() {
 
 func (suite *AdapterTestSuite) TearDownTest() {
 	suite.db.Close()
-	if _, err := os.Stat(testDB); err == nil {
-		os.Remove(testDB)
-	}
+	_ = os.Remove(testDB)
 }
 
 func Test_AdapterTest_Suite(t *testing.T) {
 	suite.Run(t, new(AdapterTestSuite))
-}
-
-func (suite *AdapterTestSuite) Test_LoadBuiltinPolicy() {
-	testGetPolicy(suite.T(), suite.enforcer, [][]string{{"alice", "data1", "read"}, {"bob", "data2", "write"}, {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"}})
 }
 
 func (suite *AdapterTestSuite) Test_SavePolicy_ReturnsErr() {
@@ -85,29 +73,73 @@ func (suite *AdapterTestSuite) Test_AutoSavePolicy() {
 	e.EnableAutoSave(true)
 
 	e.AddPolicy("roger", "data1", "write")
-	e.LoadPolicy()
-	testGetPolicy(t, e, [][]string{{"alice", "data1", "read"}, {"bob", "data2", "write"}, {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"}, {"roger", "data1", "write"}})
+	testGetPolicy(t, e, [][]string{{"roger", "data1", "write"}})
 
 	e.RemovePolicy("roger", "data1", "write")
-	e.LoadPolicy()
-	testGetPolicy(t, e, [][]string{{"alice", "data1", "read"}, {"bob", "data2", "write"}, {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"}})
+	testGetPolicy(t, e, [][]string{})
 
 	e.AddPolicies([][]string{{"roger", "data1", "read"}, {"roger", "data1", "write"}})
-	e.LoadPolicy()
-	testGetPolicy(t, e, [][]string{{"alice", "data1", "read"}, {"bob", "data2", "write"}, {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"}, {"roger", "data1", "read"}, {"roger", "data1", "write"}})
+	testGetPolicy(t, e, [][]string{{"roger", "data1", "read"}, {"roger", "data1", "write"}})
 
 	e.RemoveFilteredPolicy(0, "roger")
-	e.LoadPolicy()
-	testGetPolicy(t, e, [][]string{{"alice", "data1", "read"}, {"bob", "data2", "write"}, {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"}})
+	testGetPolicy(t, e, [][]string{})
 
 	_, err := e.RemoveFilteredPolicy(1, "data1")
 	assert.EqualError(t, err, "fieldIndex != 0: adapter only supports filter by prefix")
 
 	e.AddPolicies([][]string{{"roger", "data1", "read"}, {"roger", "data1", "write"}})
-	e.LoadPolicy()
-	testGetPolicy(t, e, [][]string{{"alice", "data1", "read"}, {"bob", "data2", "write"}, {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"}, {"roger", "data1", "read"}, {"roger", "data1", "write"}})
+	testGetPolicy(t, e, [][]string{{"roger", "data1", "read"}, {"roger", "data1", "write"}})
 
 	e.RemovePolicies([][]string{{"roger", "data1", "read"}, {"roger", "data1", "write"}})
-	e.LoadPolicy()
+	testGetPolicy(t, e, [][]string{})
+}
+
+func (suite *AdapterTestSuite) Test_UpdatePolicy() {
+	e := suite.enforcer
+	t := suite.T()
+
+	ok, err := e.AddPolicies([][]string{{"alice", "data1", "read"}, {"bob", "data2", "write"}, {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"}})
+	assert.NoError(t, err)
+	assert.True(t, ok)
+
 	testGetPolicy(t, e, [][]string{{"alice", "data1", "read"}, {"bob", "data2", "write"}, {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"}})
+
+	ok, err = e.UpdatePolicy([]string{"alice", "data1", "read"}, []string{"alice", "data3", "read"})
+	assert.NoError(t, err)
+	assert.True(t, ok)
+
+	testGetPolicy(t, e, [][]string{{"alice", "data3", "read"}, {"bob", "data2", "write"}, {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"}})
+}
+
+func (suite *AdapterTestSuite) Test_UpdatePolices() {
+	e := suite.enforcer
+	t := suite.T()
+
+	ok, err := e.AddPolicies([][]string{{"alice", "data1", "read"}, {"bob", "data2", "write"}, {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"}})
+	assert.NoError(t, err)
+	assert.True(t, ok)
+
+	testGetPolicy(t, e, [][]string{{"alice", "data1", "read"}, {"bob", "data2", "write"}, {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"}})
+
+	ok, err = e.UpdatePolicies([][]string{{"alice", "data1", "read"}, {"bob", "data2", "write"}}, [][]string{{"alice", "data3", "read"}, {"bob", "data3", "write"}})
+	assert.NoError(t, err)
+	assert.True(t, ok)
+
+	testGetPolicy(t, e, [][]string{{"alice", "data3", "read"}, {"bob", "data3", "write"}, {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"}})
+}
+
+func (suite *AdapterTestSuite) Test_UpdateFilteredPolicies() {
+	e := suite.enforcer
+	t := suite.T()
+
+	ok, err := e.AddPolicies([][]string{{"alice", "data1", "read"}, {"bob", "data2", "write"}, {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"}})
+	assert.NoError(t, err)
+	assert.True(t, ok)
+
+	testGetPolicy(t, e, [][]string{{"alice", "data1", "read"}, {"bob", "data2", "write"}, {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"}})
+
+	_, err = e.UpdateFilteredPolicies([][]string{{"alice", "data3", "read"}}, 0, "alice", "data1")
+	assert.NoError(t, err)
+
+	testGetPolicy(t, e, [][]string{{"bob", "data2", "write"}, {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"}, {"alice", "data3", "read"}})
 }

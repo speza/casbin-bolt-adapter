@@ -13,6 +13,9 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
+var _ persist.Adapter = (*adapter)(nil)
+var _ persist.UpdatableAdapter = (*adapter)(nil)
+
 // CasbinRule represents a Casbin rule line.
 type CasbinRule struct {
 	Key   string `json:"key"`
@@ -25,6 +28,10 @@ type CasbinRule struct {
 	V5    string `json:"v5"`
 }
 
+func (cr *CasbinRule) Rule() []string {
+	return strings.Split(cr.Key, "::")[1:]
+}
+
 type adapter struct {
 	db            *bolt.DB
 	bucket        []byte
@@ -34,15 +41,14 @@ type adapter struct {
 // NewAdapter creates a new adapter. It assumes that the Bolt DB is already open. A bucket name is required and
 // represents the Bolt bucket to save the data into. like to save to. The builtinPolicy is a string representation
 // of a Casbin csv policy definition. If left builtinPolicy will not be used.
-func NewAdapter(db *bolt.DB, bucket string, builtinPolicy string) (*adapter, error) {
+func NewAdapter(db *bolt.DB, bucket string) (*adapter, error) {
 	if bucket == "" {
 		return nil, errors.New("must provide a bucket")
 	}
 
 	adapter := &adapter{
-		db:            db,
-		bucket:        []byte(bucket),
-		builtinPolicy: builtinPolicy,
+		db:     db,
+		bucket: []byte(bucket),
 	}
 
 	if err := adapter.init(); err != nil {
@@ -63,14 +69,6 @@ func (a *adapter) init() error {
 // Not particularity efficient but should only be required on when you application starts up as this adapter can
 // leverage auto-save functionality.
 func (a *adapter) LoadPolicy(model model.Model) error {
-	if a.builtinPolicy != "" {
-		for _, line := range strings.Split(a.builtinPolicy, "\n") {
-			if err := loadCsvPolicyLine(strings.TrimSpace(line), model); err != nil {
-				return err
-			}
-		}
-	}
-
 	return a.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(a.bucket)
 
@@ -91,7 +89,7 @@ func (a *adapter) SavePolicy(model model.Model) error {
 }
 
 // AddPolicy inserts or updates a rule.
-func (a *adapter) AddPolicy(sec string, ptype string, rule []string) error {
+func (a *adapter) AddPolicy(_ string, ptype string, rule []string) error {
 	return a.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(a.bucket)
 
@@ -107,7 +105,7 @@ func (a *adapter) AddPolicy(sec string, ptype string, rule []string) error {
 }
 
 // AddPolicies inserts or updates multiple rules by iterating over each one and inserting it into the bucket.
-func (a *adapter) AddPolicies(sec string, ptype string, rules [][]string) error {
+func (a *adapter) AddPolicies(_ string, ptype string, rules [][]string) error {
 	return a.db.Update(func(tx *bolt.Tx) error {
 		for _, r := range rules {
 			bucket := tx.Bucket(a.bucket)
@@ -148,7 +146,7 @@ func (a *adapter) AddPolicies(sec string, ptype string, rules [][]string) error 
 // This is because we use leverage Bolts seek and prefix to find an item by prefix.
 // Once these keys are found we can iterate over and remove them.
 // Each policy rule is stored as a row in Bolt: p::subject-a::action-a::get
-func (a *adapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int, fieldValues ...string) error {
+func (a *adapter) RemoveFilteredPolicy(_ string, ptype string, fieldIndex int, fieldValues ...string) error {
 	if fieldIndex != 0 {
 		return errors.New("fieldIndex != 0: adapter only supports filter by prefix")
 	}
@@ -226,7 +224,7 @@ func (a *adapter) buildFilter(rule CasbinRule) string {
 }
 
 // RemovePolicy removes a policy line that matches key.
-func (a *adapter) RemovePolicy(sec string, ptype string, line []string) error {
+func (a *adapter) RemovePolicy(_ string, ptype string, line []string) error {
 	return a.db.Update(func(tx *bolt.Tx) error {
 		rule := convertRule(ptype, line)
 		bucket := tx.Bucket(a.bucket)
@@ -235,7 +233,7 @@ func (a *adapter) RemovePolicy(sec string, ptype string, line []string) error {
 }
 
 // RemovePolicies removes multiple policies.
-func (a *adapter) RemovePolicies(sec string, ptype string, rules [][]string) error {
+func (a *adapter) RemovePolicies(_ string, ptype string, rules [][]string) error {
 	return a.db.Update(func(tx *bolt.Tx) error {
 		for _, r := range rules {
 			rule := convertRule(ptype, r)
@@ -246,6 +244,147 @@ func (a *adapter) RemovePolicies(sec string, ptype string, rules [][]string) err
 		}
 		return nil
 	})
+}
+
+func (a *adapter) UpdatePolicy(_ string, ptype string, oldRule, newRule []string) error {
+	return a.db.Update(func(tx *bolt.Tx) error {
+		old := convertRule(ptype, oldRule)
+		new := convertRule(ptype, newRule)
+		bucket := tx.Bucket(a.bucket)
+
+		if err := bucket.Delete([]byte(old.Key)); err != nil {
+			return err
+		}
+
+		bts, err := json.Marshal(new)
+		if err != nil {
+			return err
+		}
+
+		if err := bucket.Put([]byte(new.Key), bts); err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
+func (a *adapter) UpdatePolicies(_ string, ptype string, oldRules, newRules [][]string) error {
+
+	return a.db.Update(func(tx *bolt.Tx) error {
+
+		bucket := tx.Bucket(a.bucket)
+
+		for _, r := range oldRules {
+			old := convertRule(ptype, r)
+
+			if err := bucket.Delete([]byte(old.Key)); err != nil {
+				return err
+			}
+		}
+
+		for _, r := range newRules {
+			new := convertRule(ptype, r)
+
+			bts, err := json.Marshal(new)
+			if err != nil {
+				return err
+			}
+
+			if err := bucket.Put([]byte(new.Key), bts); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+func (a *adapter) UpdateFilteredPolicies(_ string, ptype string, newPolicies [][]string, fieldIndex int, fieldValues ...string) ([][]string, error) {
+
+	if fieldIndex != 0 {
+		return nil, errors.New("fieldIndex != 0: adapter only supports filter by prefix")
+	}
+
+	rule := CasbinRule{}
+
+	rule.PType = ptype
+	if fieldIndex <= 0 && 0 < fieldIndex+len(fieldValues) {
+		rule.V0 = fieldValues[0-fieldIndex]
+	}
+	if fieldIndex <= 1 && 1 < fieldIndex+len(fieldValues) {
+		rule.V1 = fieldValues[1-fieldIndex]
+	}
+	if fieldIndex <= 2 && 2 < fieldIndex+len(fieldValues) {
+		rule.V2 = fieldValues[2-fieldIndex]
+	}
+	if fieldIndex <= 3 && 3 < fieldIndex+len(fieldValues) {
+		rule.V3 = fieldValues[3-fieldIndex]
+	}
+	if fieldIndex <= 4 && 4 < fieldIndex+len(fieldValues) {
+		rule.V4 = fieldValues[4-fieldIndex]
+	}
+	if fieldIndex <= 5 && 5 < fieldIndex+len(fieldValues) {
+		rule.V5 = fieldValues[5-fieldIndex]
+	}
+
+	filterPrefix := a.buildFilter(rule)
+
+	fmt.Println(filterPrefix)
+
+	matched := []CasbinRule{}
+	if err := a.db.View(func(tx *bolt.Tx) error {
+		c := tx.Bucket(a.bucket).Cursor()
+
+		prefix := []byte(filterPrefix)
+		for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
+			r := CasbinRule{}
+			if err := json.Unmarshal(v, &r); err != nil {
+				return err
+			}
+			matched = append(matched, r)
+		}
+
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	err := a.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(a.bucket)
+		for _, r := range matched {
+			fmt.Println(r.Key)
+			if err := bucket.Delete([]byte(r.Key)); err != nil {
+				return err
+			}
+		}
+
+		for _, r := range newPolicies {
+			new := convertRule(ptype, r)
+
+			bts, err := json.Marshal(new)
+			if err != nil {
+				return err
+			}
+
+			if err := bucket.Put([]byte(new.Key), bts); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	oldRules := make([][]string, 0, len(matched))
+
+	for _, r := range matched {
+		oldRules = append(oldRules, r.Rule())
+	}
+
+	return oldRules, err
 }
 
 func loadPolicy(rule CasbinRule, model model.Model) {
